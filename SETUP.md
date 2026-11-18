@@ -25,6 +25,10 @@ npm install --prefix .tools --no-package-lock --no-audit --no-fund bun
 # .tools に配置した場合は、新しい PowerShell を開くたびに実行
 $env:Path = "$PWD\.tools\node_modules\bun\bin;$env:Path"
 
+# Rust 音声処理のビルドに必要。Python と CMake が利用できる環境で実行
+python -m pip install --target .tools/clang libclang==18.1.1
+$env:LIBCLANG_PATH = "$PWD\.tools\clang\clang\native"
+
 bun --no-env-file install --frozen-lockfile
 bun --no-env-file run typecheck
 bun --no-env-file test
@@ -35,7 +39,23 @@ bun --no-env-file run check:audio
 
 `check:audio` は生成した `target/napi/index.node` を読み込み、整数の応答、バッファを使う非同期処理、空バッファのエラー伝搬を確認する。SQLite の検証には一時 DB を使用する。
 
-Bot の試験起動と VC 接続は「9. 起動手順」の手順を使用する。Worker、DB マイグレーション、音声受信と ASR は後続の実装範囲とする。
+Bot・Worker の起動は「9. 起動手順」を使用する。音声処理は `opus` と `whisper-rs` を使い、16 kHz のモノラル PCM とエネルギーしきい値による VAD を使用する。`options/asr.json` の `vadThreshold` は省略時 0.008、設定範囲は 0 より大きく 1 以下。ASR 並列数は `maxParallelTasks` で設定する。Windows のネイティブビルドでは長いパスを避けるため一時フォルダーのビルドキャッシュを使用する。
+
+Whisper モデルを `models/ggml-tiny.bin` に配置してから `/start` を実行する。今回検証に使用したのは [whisper.cpp 公開モデル](https://huggingface.co/ggerganov/whisper.cpp/blob/main/ggml-tiny.bin) で、SHA256 は `be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21`。
+
+```powershell
+New-Item -ItemType Directory -Force models | Out-Null
+Invoke-WebRequest 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin' -OutFile models/ggml-tiny.bin
+bun run db:migrate
+```
+
+モデル、合成音声、DB、音声モジュールは Git 除外対象。音声認識の再検証用に、Windows の SAPI で自作の英文を生成できる。
+
+```powershell
+pwsh -File scripts/audio-fixture.ps1
+cargo run -p audio --example encode_fixture -- models/audio-fixture.wav models/audio-fixture.opuspackets
+bun run test:audio
+```
 
 ### バージョン確認
 
@@ -323,29 +343,26 @@ PRAGMA journal_mode = WAL;
 PRAGMA busy_timeout = 5000;
 ```
 
-> `journal_mode` はDBファイルに保持される設定だが、`foreign_keys` と `busy_timeout` は接続ごとに設定する。migrationコマンドは実装時に定義するため、存在しないコマンドをここでは指定しない。
+> `journal_mode` はDBファイルに保持される設定だが、`foreign_keys` と `busy_timeout` は接続ごとに設定する。`bun run db:migrate` で migration を適用でき、Bot と Worker の起動時にも適用される。
 
 ## 9. 起動手順
 
-### Bot の VC 接続をテストする
+### Bot の初期設定
 
-1. テスト用アプリをテスト用 Guild にインストールする。Bot に通常のボイスチャンネルの「チャンネルを見る」「接続」を許可し、テスト担当者がテキストチャンネルでアプリコマンドを使えることを確認する。
+1. テスト用アプリをテスト用 Guild にインストールする。Bot に通常のボイスチャンネルの「チャンネルを見る」「接続」と VC チャットへの投稿、要約用テキストチャンネルの閲覧・投稿・メッセージ履歴参照を許可する。テスト担当者がアプリコマンドを使えることも確認する。
 2. ルートの `.env` に `DISCORD_BOT_TOKEN` を設定する。既存の `TOKEN` でも起動できる。
 3. `options/discord.json` の `commandGuildIds` にテスト用 Guild の ID を文字列で指定する。2つの Guild で試す場合は両方の ID を指定する。空配列の場合、コマンドはアプリをインストールした全 Guild に登録される。
-4. リポジトリのルートで `bun run dev:bot` を実行する。Windows で Bun を `.tools` に入れた場合は第2節の PATH 設定を先に実行する。コンソールに Gateway 接続とコマンド登録の完了が表示される。
+4. リポジトリのルートで Worker と Bot を別ターミナルから起動する。Windows で Bun を `.tools` に入れた場合は第2節の PATH 設定を両ターミナルで実行する。Bot のコンソールに Gateway 接続とコマンド登録の完了が表示される。
+5. サーバー管理権限を持つメンバーが、要約を投稿したいテキストチャンネルで `/setup` を実行する。そのチャンネルが Guild の投稿先として DB に保存される。`/config` で確認でき、変更は次の Session から反映される。
+6. AI 要約を使用する場合は `.env` に `OPENAI_API_KEY` を設定し、`options/ai.json` の `model` に利用するモデル名を設定して Worker を再起動する。モデルが null、キー未設定、API 障害、応答不正のときは文字起こしを直接投稿する。
 
-| 確認項目 | 操作と期待結果 |
-|---|---|
-| コマンド | テスト用 Guild のテキストチャンネルで `/` を入力し、この Bot の `/start`、`/stop`、`/status` が候補に出る。`/status` は接続中の VC がないと応答する。 |
-| VC 参加・重複防止 | VC に入る前に `/start` を実行し、VC 参加を促す応答を確認する。通常の VC に入ってから `/start` を実行すると Bot が同じ VC に参加し、`/status` に接続先が出る。再度 `/start` を実行すると接続済みと応答する。 |
-| VC 退出・Guild 分離 | 2つ目の Guild が利用できる場合は、そちらでも `/start` を実行する。最初の Guild で `/stop` を実行すると Bot がその Guild の VC から退出し、`/status` が未接続を返す。2つ目で開始していた場合は、その Guild の接続が続く。 |
-| プロセス終了 | VC 接続中に起動したターミナルで Ctrl+C を押す。Bot が VC から退出し、コンソールに停止が表示される。再起動後に `/status` が未接続と応答し、Bot が自動で VC に戻らない。 |
+実機テストの5つのフロー、前提条件、期待結果、報告する観察点は [TEST_RESULTS.md](TEST_RESULTS.md) に記載する。
 
-各項目の結果を「成功／失敗／一部成功／実施不可」で記録する。失敗時はコマンドへの応答、発生時刻と起動・終了ログを記録する。VC 確認時の Bot は自己ミュート・自己スピーカーミュートで参加する。
+各項目の結果を「成功／失敗／一部成功／実施不可」で記録する。失敗時はコマンドへの応答、発生時刻と起動・終了ログを記録する。Bot は自己ミュートで参加し、ユーザー別に音声を受信する。実機 DAVE 音声受信は人間による確認対象とする。
 
 ### Bot・Worker の起動手順
 
-Worker の `dev` スクリプトを実装した後は、両プロセスを**別ターミナル**で起動する。
+両プロセスを**別ターミナル**で起動する。Worker を起動してから Bot で `/start` を実行する。終了時は Bot を停止し、最終出力と VC 退出が完了してから Worker を停止する。Bot は最終出力の完了を待つため、Worker が停止中なら Worker を再開する。
 
 ターミナル1:
 
@@ -394,10 +411,10 @@ bun run dev:worker
 ## 12. 未確定・実機検証が必要な点
 
 - Discord音声受信のDAVE対応、`@discordjs/voice`とBunの組み合わせ。
-- `napi-rs`で生成したモジュールのBun上での動作と非同期処理の安定性。
-- 採用するOpus／VAD／Whisperクレートの対応OS・必要なネイティブ依存。
+- 日本語の実会話と長時間運転での音声認識・VAD 精度。
+- Ubuntu・macOS での Opus／Whisper のビルドと実行。
 - 5世代Core i5相当のCPUで達成できるASR速度・同時セッション性能。
-- VCに関連付くテキストチャットへの負荷警告の実装方法。
-- 設定JSONの最終スキーマ、正式なmigrationコマンド、各workspaceのスクリプト名。
+- VCに関連付くテキストチャットへの負荷警告の実機表示。
+- 実 AI モデルの会話内容に対する要約品質と累積状態の更新。
 
 これらはPoCと実測で決定し、推測で「対応済み」と記載しない。
