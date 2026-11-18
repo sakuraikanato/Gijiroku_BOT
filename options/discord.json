@@ -1,3 +1,4 @@
 {
-  "tokenEnv": "DISCORD_BOT_TOKEN"
+  "tokenEnv": "DISCORD_BOT_TOKEN",
+  "commandGuildIds": []
 }

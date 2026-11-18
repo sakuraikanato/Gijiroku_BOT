@@ -14,6 +14,7 @@
       "name": "@gijiroku/bot",
       "dependencies": {
         "@discordjs/voice": "^0.19",
+        "@gijiroku/shared": "workspace:*",
         "discord.js": "^14",
       },
     },
@@ -25,6 +26,9 @@
     },
     "packages/shared": {
       "name": "@gijiroku/shared",
+      "dependencies": {
+        "zod": "^4",
+      },
     },
   },
   "packages": {

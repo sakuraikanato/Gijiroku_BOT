@@ -23,7 +23,7 @@
 # Bun が未導入で、このプロジェクト内に配置する場合だけ実行
 npm install --prefix .tools --no-package-lock --no-audit --no-fund bun
 # .tools に配置した場合は、新しい PowerShell を開くたびに実行
-$env:Path = "$PWD\.tools\node_modules\.bin;$env:Path"
+$env:Path = "$PWD\.tools\node_modules\bun\bin;$env:Path"
 
 bun --no-env-file install --frozen-lockfile
 bun --no-env-file run typecheck
@@ -35,7 +35,7 @@ bun --no-env-file run check:audio
 
 `check:audio` は生成した `target/napi/index.node` を読み込み、整数の応答、バッファを使う非同期処理、空バッファのエラー伝搬を確認する。SQLite の検証には一時 DB を使用する。
 
-現段階の `options/` は設定の初期案。Bot・Worker の起動、正式な設定スキーマ、DB マイグレーション、Discord と ASR の実機検証はアプリ実装後に行う。既存のローカル `.env` を使う場合、Bot 実装時に設定する環境変数名は `DISCORD_BOT_TOKEN`。
+Bot の試験起動と VC 接続は「9. 起動手順」の手順を使用する。Worker、DB マイグレーション、音声受信と ASR は後続の実装範囲とする。
 
 ### バージョン確認
 
@@ -285,7 +285,7 @@ export DISCORD_BOT_TOKEN='...'
 export OPENAI_API_KEY='...'
 ```
 
-実装時に `options/discord.json` は `DISCORD_BOT_TOKEN` を参照する形式にする。ローカルで `.env` を使用する場合は読み込み方式を統一し、`.env` を `.gitignore` に追加する。
+`options/discord.json` の `tokenEnv` は既定で `DISCORD_BOT_TOKEN` を参照する。ローカルではリポジトリ直下の `.env` を Bun が読み込む。既定の変数が未設定の場合に限り、既存の `TOKEN` も使用できる。
 
 **Git除外の例**:
 
@@ -327,7 +327,25 @@ PRAGMA busy_timeout = 5000;
 
 ## 9. 起動手順
 
-各workspaceに `dev` スクリプトを実装した後、**別ターミナル**で起動する。
+### Bot の VC 接続をテストする
+
+1. テスト用アプリをテスト用 Guild にインストールする。Bot に通常のボイスチャンネルの「チャンネルを見る」「接続」を許可し、テスト担当者がテキストチャンネルでアプリコマンドを使えることを確認する。
+2. ルートの `.env` に `DISCORD_BOT_TOKEN` を設定する。既存の `TOKEN` でも起動できる。
+3. `options/discord.json` の `commandGuildIds` にテスト用 Guild の ID を文字列で指定する。2つの Guild で試す場合は両方の ID を指定する。空配列の場合、コマンドはアプリをインストールした全 Guild に登録される。
+4. リポジトリのルートで `bun run dev:bot` を実行する。Windows で Bun を `.tools` に入れた場合は第2節の PATH 設定を先に実行する。コンソールに Gateway 接続とコマンド登録の完了が表示される。
+
+| 確認項目 | 操作と期待結果 |
+|---|---|
+| コマンド | テスト用 Guild のテキストチャンネルで `/` を入力し、この Bot の `/start`、`/stop`、`/status` が候補に出る。`/status` は接続中の VC がないと応答する。 |
+| VC 参加・重複防止 | VC に入る前に `/start` を実行し、VC 参加を促す応答を確認する。通常の VC に入ってから `/start` を実行すると Bot が同じ VC に参加し、`/status` に接続先が出る。再度 `/start` を実行すると接続済みと応答する。 |
+| VC 退出・Guild 分離 | 2つ目の Guild が利用できる場合は、そちらでも `/start` を実行する。最初の Guild で `/stop` を実行すると Bot がその Guild の VC から退出し、`/status` が未接続を返す。2つ目で開始していた場合は、その Guild の接続が続く。 |
+| プロセス終了 | VC 接続中に起動したターミナルで Ctrl+C を押す。Bot が VC から退出し、コンソールに停止が表示される。再起動後に `/status` が未接続と応答し、Bot が自動で VC に戻らない。 |
+
+各項目の結果を「成功／失敗／一部成功／実施不可」で記録する。失敗時はコマンドへの応答、発生時刻と起動・終了ログを記録する。VC 確認時の Bot は自己ミュート・自己スピーカーミュートで参加する。
+
+### Bot・Worker の起動手順
+
+Worker の `dev` スクリプトを実装した後は、両プロセスを**別ターミナル**で起動する。
 
 ターミナル1:
 

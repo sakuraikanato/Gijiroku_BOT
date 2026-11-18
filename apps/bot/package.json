@@ -2,7 +2,11 @@
   "name": "@gijiroku/bot",
   "private": true,
   "type": "module",
+  "scripts": {
+    "dev": "bun --cwd ../.. apps/bot/src/index.ts"
+  },
   "dependencies": {
+    "@gijiroku/shared": "workspace:*",
     "discord.js": "^14",
     "@discordjs/voice": "^0.19"
   }
