@@ -108,6 +108,14 @@ export class SqliteRepository implements Repository {
       if (state === "ended" && session.state !== "starting" && this.hasPendingJobs(scope)) {
         throw new Error("Session has unfinished summary jobs");
       }
+      if (state === "ended" && session.state !== "starting" && this.db.query(`
+        SELECT 1 FROM transcripts t WHERE t.guild_id=? AND t.session_id=?
+          AND NOT EXISTS(SELECT 1 FROM short_summary_transcripts s WHERE s.transcript_id=t.id)
+        UNION ALL SELECT 1 FROM pending_audio WHERE guild_id=? AND session_id=?
+        UNION ALL SELECT 1 FROM short_summaries WHERE guild_id=? AND session_id=? AND imported_into_long_summary_id IS NULL
+        LIMIT 1`).get(scope.guildId, scope.sessionId, scope.guildId, scope.sessionId, scope.guildId, scope.sessionId)) {
+        throw new Error("Session has unfinished audio or summary inputs");
+      }
       this.db.query("UPDATE sessions SET state=?,ended_at=? WHERE guild_id=? AND id=?")
         .run(state, state === "ended" ? now : null, scope.guildId, scope.sessionId);
       if (state === "ended") {
@@ -358,6 +366,9 @@ export class SqliteRepository implements Repository {
     if (job.kind === "short") {
       if (!("sourceTranscriptIds" in content)) throw new Error("Invalid short summary");
       checkIds(content.sourceTranscriptIds);
+      if (new Set(content.sourceTranscriptIds).size !== transcriptIds.size || content.sourceTranscriptIds.length !== transcriptIds.size) {
+        throw new Error("Incomplete short summary sources");
+      }
       return;
     }
     if (!("sourceShortSummaryIds" in content)) throw new Error("Invalid long summary");

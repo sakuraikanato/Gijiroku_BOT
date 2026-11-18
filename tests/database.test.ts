@@ -310,3 +310,22 @@ test("retention deletion cascades through summary cycles and preserves other Gui
     } finally { raw.close(); }
   } finally { f.close(); }
 });
+
+test("participant rejoining preserves each visit and Session ending requires all persisted inputs to be processed", () => {
+  const f = fixture();
+  try {
+    const session = start(f.repo);
+    f.repo.addParticipant(session, "same-user", true, 1000);
+    f.repo.addParticipant(session, "same-user", true, 1100);
+    f.repo.addParticipant(session, "same-user", false, 2000);
+    f.repo.addParticipant(session, "same-user", true, 3000);
+    transcript(f.repo, session);
+    f.repo.setSessionState(session, "stopping");
+    expect(() => f.repo.setSessionState(session, "ended")).toThrow("unfinished");
+    const raw = new Database(f.path);
+    try {
+      expect(raw.query("SELECT joined_at,left_at FROM participants ORDER BY joined_at").values())
+        .toEqual([[1000, 2000], [3000, null]]);
+    } finally { raw.close(); }
+  } finally { f.close(); }
+});
