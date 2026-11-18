@@ -23,15 +23,15 @@
 
 音声担当による `cargo check --workspace`、`cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings` は成功した。Rust の3テストで、Opus の48 kHz stereo から16 kHz mono への変換、不正・過大バッファの拒否、VAD の無音・短いノイズの除外を検証した。
 
-ネイティブモジュールの Bun 読み込みと非同期バッファの受け渡しに加え、Windows SAPI の英語音声を生成して実 Whisper Tiny を実行した。`scripts/audio-smoke.ts` は PCM 入力と Opus 入力の両方で発話内容を認識し、無音と不正入力の検査も通過した。Whisper のネイティブログを抑制し、認識文字列をコンソールに出力しないことも確認した。
+ネイティブモジュールの Bun 読み込みと非同期バッファの受け渡しに加え、Windows SAPI の英語音声を生成して実 Whisper Tiny を実行した。独立 QA でも `bun --no-env-file scripts/audio-smoke.ts` を実行し、終了コード0と `passed: true` を確認した。PCM 入力と Opus 入力の両方で発話内容を認識し、無音と不正入力の検査も通過した。Whisper のネイティブログを抑制し、認識文字列をコンソールに出力しないことも確認した。
 
 | 計測条件 | 値 |
 |---|---|
 | CPU | AMD Ryzen 5 3600、6コア・12スレッド |
 | ASR | Whisper Tiny、1認識あたりCPU 2スレッド |
 | テスト音声 | 生成した英語音声、5.26秒 |
-| PCM 入力処理時間 | 1.6250秒、実時間比0.30894 |
-| Opus 入力処理時間 | 1.4673秒、実時間比0.27895 |
+| PCM 入力処理時間 | 1.8381秒、実時間比0.34945 |
+| Opus 入力処理時間 | 1.7571秒、実時間比0.33404 |
 | モデル SHA-256 | `BE07E048E1E599AD46341C8D2A135645097A538221678B7ACDD1B1919C6E1B21` |
 
 VAD は20 msフレームの RMS による判定を採用した。既定の閾値は0.008、発話判定に必要な長さは80 ms、前後のパディングは200 ms。閾値は `options/asr.json` の `vadThreshold` で変更できる。
