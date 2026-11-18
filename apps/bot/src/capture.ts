@@ -8,11 +8,13 @@ export function captureVoice(
   scope: Scope,
   audio: AudioPipeline,
   repository: Repository,
+  blacklistedUserIds: readonly string[] = [],
 ) {
   let sequence = 0;
   const subscriptions = new Map<string, () => void>();
   const subscribe = (userId: string) => {
-    if (subscriptions.has(userId)) return;
+    if (subscriptions.has(userId) || blacklistedUserIds.includes(userId)) return;
+    repository.addParticipant(scope, userId, true);
     const stream = connection.receiver.subscribe(userId, {
       end: { behavior: EndBehaviorType.AfterSilence, duration: 800 },
     });
@@ -22,6 +24,7 @@ export function captureVoice(
     let endedAt = 0;
     let chunkSequence = 0;
     let stopped = false;
+    let pauseRecorded = false;
 
     function flush() {
       if (!packets.length) return;
@@ -42,7 +45,14 @@ export function captureVoice(
     subscriptions.set(userId, stop);
     stream.on("data", (packet: Buffer) => {
       if (stopped) return;
-      if (packet.length > 16_384) {
+      if (audio.stats().paused) {
+        flush();
+        if (!pauseRecorded) repository.recordAudioLoss(scope, "audio_received_while_paused");
+        pauseRecorded = true;
+        return;
+      }
+      pauseRecorded = false;
+      if (packet.length > 4096) {
         repository.recordAudioLoss(scope, "oversized_opus_packet");
         return;
       }

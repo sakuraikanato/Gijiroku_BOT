@@ -33,7 +33,9 @@ async function main() {
     },
   }, root);
   const recording = new RecordingSessions(repository, audio, options, root);
-  const bot = createBot(options.discord, client, recording, { repository, options });
+  const bot = createBot(options.discord, client, recording, {
+    repository, options, audioStats: () => audio.stats(),
+  });
   let stopping: Promise<void> | undefined;
 
   function stop() {

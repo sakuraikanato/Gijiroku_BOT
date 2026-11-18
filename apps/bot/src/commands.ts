@@ -53,7 +53,11 @@ export type VoiceController = {
   status(guildId: string): { channelId: string | null | undefined; state: string } | undefined;
   close(): void | Promise<void>;
 };
-export type CommandContext = { repository: Repository; options: AppOptions };
+export type CommandContext = {
+  repository: Repository;
+  options: AppOptions;
+  audioStats?: () => { queued: number; paused: boolean };
+};
 
 const ephemeral = { flags: MessageFlags.Ephemeral } as const;
 const joinMessage = {
@@ -94,7 +98,7 @@ export async function handleVoiceCommand(
       if (!context) throw new Error("Repository unavailable.");
       const channelId = context.repository.getOutputChannel(guildId);
       await interaction.reply({ ...ephemeral, content: channelId
-        ? `要約投稿先 <#${channelId}>\n設定の変更反映には Bot・Worker の再起動が必要です。`
+        ? `要約投稿先 <#${channelId}>\n/setup の変更は次の Session から反映します。options/ の変更反映には Bot・Worker の再起動が必要です。`
         : "投稿先が未登録です。投稿先で /setup を実行してください。" });
       return;
     }
@@ -123,6 +127,14 @@ export async function handleVoiceCommand(
         guildId,
         adapterCreator: interaction.guild.voiceAdapterCreator,
       });
+      if (result === "joined" && context) {
+        const session = context.repository.activeSessions().find((item) => item.guildId === guildId && item.state === "running");
+        if (session) {
+          for (const member of channel.members.values()) {
+            context.repository.addParticipant(session, member.id, true);
+          }
+        }
+      }
       await interaction.editReply(joinMessage[result]);
       return;
     }
@@ -140,7 +152,9 @@ export async function handleVoiceCommand(
         : "接続中の VC はありません。";
       const sessions = context?.repository.activeSessions().filter((session) => session.guildId === guildId);
       const detail = sessions?.length ? `\nSession ${sessions[0]!.state}` : "";
-      await interaction.reply({ ...ephemeral, content: content + detail });
+      const load = context?.audioStats?.();
+      const queue = load ? `\n全 Guild 共通の音声処理待ち ${load.queued} 件${load.paused ? "（取り込み停止中）" : ""}` : "";
+      await interaction.reply({ ...ephemeral, content: content + detail + queue });
     }
   }
 }

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { VoiceConnectionStatus, getVoiceConnection } from "@discordjs/voice";
 import type { AppOptions } from "@gijiroku/shared/options";
 import type { AudioPipeline } from "@gijiroku/shared/audio";
@@ -7,10 +7,15 @@ import type { Repository, Session } from "@gijiroku/shared/contracts";
 import { captureVoice } from "./capture";
 import { VoiceSessions } from "./voice";
 
+type ActiveRecording = {
+  session: Session;
+  stopCapture?: () => void;
+  joining?: ReturnType<VoiceSessions["start"]>;
+};
+
 export class RecordingSessions {
-  private readonly sessions = new Map<string, { session: Session; stopCapture?: () => void }>();
+  private readonly sessions = new Map<string, ActiveRecording>();
   private readonly stopping = new Map<string, Promise<boolean>>();
-  private readonly voice = new VoiceSessions();
   private closing = false;
   private readonly monitor: ReturnType<typeof setInterval>;
 
@@ -19,6 +24,7 @@ export class RecordingSessions {
     private readonly audio: AudioPipeline,
     private readonly options: AppOptions,
     private readonly root: string,
+    private readonly voice = new VoiceSessions(),
   ) {
     this.monitor = setInterval(() => {
       for (const [guildId] of this.sessions) {
@@ -33,15 +39,16 @@ export class RecordingSessions {
     if (this.closing) return "cancelled" as const;
     if (this.sessions.has(target.guildId)) return "already-active" as const;
     if (!existsSync(join(this.root, "target/napi/index.node")) ||
-      !existsSync(join(this.root, this.options.asr.modelPath))) {
+      !existsSync(resolve(this.root, this.options.asr.modelPath))) {
       throw new Error("音声モジュールと Whisper モデルを準備してください。");
     }
     this.audio.prepare();
     const session = this.repository.createSession(target.guildId, target.channelId);
-    const value: { session: Session; stopCapture?: () => void } = { session };
+    const value: ActiveRecording = { session };
     this.sessions.set(target.guildId, value);
     try {
-      const result = await this.voice.start(target);
+      value.joining = this.voice.start(target);
+      const result = await value.joining;
       if (result !== "joined") {
         this.repository.setSessionState(session, "ended");
         this.sessions.delete(target.guildId);
@@ -52,10 +59,12 @@ export class RecordingSessions {
       session.state = "running";
       const connection = getVoiceConnection(target.guildId);
       if (!connection) throw new Error("VC 接続を確認できませんでした。");
-      value.stopCapture = captureVoice(connection, session, this.audio, this.repository);
+      value.stopCapture = captureVoice(connection, session, this.audio, this.repository, this.options.asr.blacklistedUserIds);
       return "joined" as const;
     } catch (error) {
-      this.repository.setSessionState(session, "ended");
+      const state = this.repository.getSession(session)?.state;
+      if (state === "starting") this.repository.setSessionState(session, "ended");
+      if (state === "running") this.repository.setSessionState(session, "stopping");
       this.sessions.delete(target.guildId);
       this.voice.stop(target.guildId);
       throw error;
@@ -79,12 +88,17 @@ export class RecordingSessions {
     if (!value) return Promise.resolve(false);
     const operation = (async () => {
       try {
+        if (value.session.state === "starting") {
+          this.voice.stop(guildId);
+          await value.joining;
+          this.repository.setSessionState(value.session, "ended");
+          return true;
+        }
         value.stopCapture?.();
         await this.audio.flush(value.session);
         this.repository.setSessionState(value.session, "stopping");
         // The separate Worker commits the final summaries before the VC is released.
-        const deadline = Date.now() + 2 * this.options.ai.timeoutMs + 10_000;
-        while (!this.closing && this.repository.getSession(value.session)?.state !== "ended" && Date.now() < deadline) {
+        while (this.repository.getSession(value.session)?.state !== "ended") {
           await Bun.sleep(250);
         }
         return true;

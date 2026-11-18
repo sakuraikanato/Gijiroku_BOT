@@ -55,4 +55,17 @@ test("reports the file and any invalid nested fields at startup", () => {
     }));
     expect(() => loadOptions(directory)).toThrow(/options\/prompts\/long\.json.*userPrompt/);
   });
+  withOptions((directory) => {
+    writeFileSync(join(directory, "prompts", "short.json"), JSON.stringify({
+      systemPrompt: "{{transcripts}}",
+      userPrompt: "{{transcripts}}",
+    }));
+    expect(() => loadOptions(directory)).toThrow(/options\/prompts\/short\.json.*systemPrompt/);
+  });
+  withOptions((directory) => {
+    const { asr } = loadOptions(directory);
+    asr.vadThreshold = 0;
+    writeFileSync(join(directory, "asr.json"), JSON.stringify(asr));
+    expect(() => loadOptions(directory)).toThrow(/options\/asr\.json.*vadThreshold/);
+  });
 });

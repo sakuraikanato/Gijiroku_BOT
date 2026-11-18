@@ -58,7 +58,7 @@ const asrSchema = z.strictObject({
   modelPath: nonEmpty,
   language: nonEmpty,
   sampleRate: z.literal(16000),
-  vadThreshold: z.number().min(0).max(1).default(0.008),
+  vadThreshold: z.number().positive().max(1).default(0.008),
   maxParallelTasks: positiveInteger,
   queue: queueSchema,
   blacklistedUserIds: z.array(snowflake),
@@ -96,7 +96,11 @@ function promptSchema(allowedVariables: readonly string[]) {
       allowedVariables.includes(variable) ? "" : match);
     return !remainder.includes("{{") && !remainder.includes("}}");
   }, "許可されたテンプレート変数を指定してください。");
-  return z.strictObject({ systemPrompt: template, userPrompt: template });
+  return z.strictObject({
+    systemPrompt: nonEmpty.refine((value) => !value.includes("{{") && !value.includes("}}"),
+      "systemPrompt では会話データのテンプレート変数を使用できません。"),
+    userPrompt: template,
+  });
 }
 
 const shortPromptSchema = promptSchema(["transcripts"]);
