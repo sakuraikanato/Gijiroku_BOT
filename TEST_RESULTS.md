@@ -6,6 +6,8 @@
 
 独立 QA の確認時点で `bun --no-env-file run typecheck` は終了コード0、`bun --no-env-file test` は48件成功、失敗0件、575アサーションだった。以下の表は `AI_GUIDELINES.md` 第5節との対応を示す。外部 AI と Discord 投稿の結合テストはモックを使用し、SQLite と Worker 異常終了の検証には実 DB と子プロセスを使用した。
 
+Main による起動検証でも `db:migrate` の適用、`dev:worker` の起動・停止、`dev:bot` の実 Discord Gateway 接続と停止を確認した。Bot の起動検証では登録 REST を一時的な preload でモック化したため、Discord 上でのコマンド登録と VC 受信は後述の実機テストで確認する。
+
 | ガイドラインの分類 | コマンド・入力と期待結果 | 実際の結果と証跡 |
 |---|---|---|
 | 静的検査 | `bun --no-env-file run typecheck` で型エラーが発生しない | 成功。終了コード0 |
@@ -21,7 +23,7 @@
 
 ### Rust と実音声
 
-音声担当による `cargo check --workspace`、`cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings` は成功した。Rust の3テストで、Opus の48 kHz stereo から16 kHz mono への変換、不正・過大バッファの拒否、VAD の無音・短いノイズの除外を検証した。
+音声担当と Main による `cargo fmt --all -- --check`、`cargo check --workspace`、`cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings` は成功した。Rust の3テストで、Opus の48 kHz stereo から16 kHz mono への変換、不正・過大バッファの拒否、VAD の無音・短いノイズの除外を検証した。
 
 ネイティブモジュールの Bun 読み込みと非同期バッファの受け渡しに加え、Windows SAPI の英語音声を生成して実 Whisper Tiny を実行した。独立 QA でも `bun --no-env-file scripts/audio-smoke.ts` を実行し、終了コード0と `passed: true` を確認した。PCM 入力と Opus 入力の両方で発話内容を認識し、無音と不正入力の検査も通過した。Whisper のネイティブログを抑制し、認識文字列をコンソールに出力しないことも確認した。
 
