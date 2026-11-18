@@ -86,3 +86,40 @@ test("empty sessions end without generating empty summaries, while starting sess
     repository.close();
   }
 });
+
+test("long summaries honor both configured count and elapsed-time boundaries without empty output", () => {
+  for (const trigger of ["count", "elapsed"] as const) {
+    const repository = new SqliteRepository(":memory:");
+    const now = Date.now();
+    const session = createSession(repository, now);
+    const settings = structuredClone(options);
+    settings.summary.long.newShortSummaryThreshold = trigger === "count" ? 2 : 100;
+    settings.summary.long.elapsedSeconds = trigger === "elapsed" ? 10 : 1000;
+    function saveShort(sequence: number) {
+      const row = repository.addTranscript({
+        guildId: session.guildId, sessionId: session.sessionId, userId: "speaker",
+        text: "会話", sequence, startedAt: now + sequence, endedAt: now + sequence,
+      });
+      const job = repository.createShortJob(session, false, now)!;
+      repository.claimJob("worker", 100000, now);
+      repository.saveSummary(job, "worker", { overview: "短期要約", sourceTranscriptIds: [row.id] }, false, now);
+      repository.completeJob(job.id, "worker");
+    }
+    try {
+      tickRepository(repository, settings, now + 10000);
+      expect(repository.hasPendingJobs(session)).toBe(false);
+      saveShort(1);
+      tickRepository(repository, settings, now + 9999);
+      expect(repository.hasPendingJobs(session)).toBe(false);
+      if (trigger === "count") saveShort(2);
+      tickRepository(repository, settings, now + 10000);
+      const job = repository.claimJob("long-worker", 100000, now + 10000)!;
+      expect(job.kind).toBe("long");
+      expect(repository.jobInput(job).shortSummaries).toHaveLength(trigger === "count" ? 2 : 1);
+      tickRepository(repository, settings, now + 10001);
+      expect(repository.claimJob("other-worker", 100000, now + 10001)).toBeNull();
+    } finally {
+      repository.close();
+    }
+  }
+});

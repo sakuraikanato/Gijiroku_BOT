@@ -1,4 +1,4 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -214,5 +214,94 @@ test("recovers work after a worker process exits and finishes stopped sessions w
   } finally {
     repository.close();
     rmSync(directory, { recursive: true });
+  }
+});
+
+test("fences publication when a heartbeat loses its lease while an AI request is running", async () => {
+  const { repository, session } = setup();
+  const configured = structuredClone(options);
+  configured.worker.leaseDurationMs = 30;
+  const publisher = { publish: mock(async () => "message") };
+  try {
+    addTranscript(repository, session, 1);
+    repository.createShortJob(session);
+    const renew = spyOn(repository, "renewLease").mockReturnValue(false);
+    expect(await processOne(repository, configured, {
+      provider: { summarize: () => new Promise<never>(() => {}) },
+      publisher,
+    })).toBe(true);
+    expect(renew).toHaveBeenCalled();
+    expect(publisher.publish).not.toHaveBeenCalled();
+    expect(repository.hasPendingJobs(session)).toBe(true);
+    renew.mockRestore();
+  } finally {
+    repository.close();
+  }
+});
+
+test("a generated summary survives a worker process exit without duplicate AI or Discord output", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "gijiroku-generated-crash-"));
+  const path = join(directory, "test.sqlite");
+  const { repository, session } = setup(path);
+  const provider = mockProvider();
+  const publisher = { publish: mock(async () => "message") };
+  try {
+    const transcript = addTranscript(repository, session, 1);
+    repository.createShortJob(session);
+    const childSource = `
+      import { SqliteRepository } from ${JSON.stringify(fileURLToPath(new URL("../../../packages/shared/src/database.ts", import.meta.url)))};
+      const repository = new SqliteRepository(${JSON.stringify(path)});
+      const job = repository.claimJob("crashed-worker", 100);
+      repository.saveSummary(job, "crashed-worker", { overview: "保存済み", sourceTranscriptIds: [${transcript.id}] }, false);
+      process.exit(23);
+    `;
+    const child = Bun.spawn([process.execPath, "--no-env-file", "-e", childSource], { stdout: "pipe", stderr: "pipe" });
+    expect(await child.exited).toBe(23);
+    await Bun.sleep(120);
+    expect(await processOne(repository, options, { provider, publisher })).toBe(false);
+    expect(provider.summarize).not.toHaveBeenCalled();
+    expect(publisher.publish).not.toHaveBeenCalled();
+    expect(repository.hasPendingJobs(session)).toBe(false);
+    const inspection = new Database(path, { readonly: true });
+    try {
+      expect(inspection.query("SELECT COUNT(*) AS count FROM short_summaries").get()).toEqual({ count: 1 });
+      expect(inspection.query("SELECT publication_error FROM short_summaries").get())
+        .toEqual({ publication_error: "publication_interrupted" });
+    } finally {
+      inspection.close();
+    }
+  } finally {
+    repository.close();
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test("long fallback preserves raw intervals even when AI becomes available on later jobs", async () => {
+  const { repository, session } = setup();
+  const provider = mockProvider();
+  const published: Summary[] = [];
+  const publisher = { publish: async (summary: Summary) => { published.push(summary); return "message"; } };
+  try {
+    addTranscript(repository, session, 1, "フォールバック期間の発言");
+    repository.createShortJob(session);
+    await processOne(repository, options, { environment: {}, publisher });
+    repository.createLongJob(session);
+    await processOne(repository, options, { provider, publisher });
+    expect(provider.summarize).not.toHaveBeenCalled();
+    expect(published.at(-1)?.fallback).toBe(true);
+    expect(published.at(-1)?.content.overview).toContain("フォールバック期間の発言");
+
+    addTranscript(repository, session, 2, "AI 復帰後の発言");
+    repository.createShortJob(session);
+    await processOne(repository, options, { provider, publisher });
+    expect(published.at(-1)?.fallback).toBe(false);
+    repository.createLongJob(session);
+    await processOne(repository, options, { provider, publisher });
+    expect(provider.summarize).toHaveBeenCalledTimes(1);
+    expect(published.at(-1)?.fallback).toBe(true);
+    expect(published.at(-1)?.content.overview).toContain("フォールバック期間の発言");
+    expect(published.at(-1)?.content.overview).toContain("AI 復帰後の発言");
+  } finally {
+    repository.close();
   }
 });

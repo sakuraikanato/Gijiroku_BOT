@@ -51,8 +51,10 @@ async function main() {
 if (import.meta.main) {
   try {
     await main();
-  } catch {
-    console.error("Summary Worker を起動できませんでした。設定と DB のアクセス権を確認してください。");
+  } catch (error) {
+    console.error(error instanceof Error && error.message.startsWith("options/")
+      ? error.message
+      : "Summary Worker を起動できませんでした。設定と DB のアクセス権を確認してください。");
     process.exitCode = 1;
   }
 }
