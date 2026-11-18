@@ -101,6 +101,8 @@ pub struct Recognizer {
 impl Recognizer {
     #[napi(constructor)]
     pub fn new(model_path: String, language: String, vad_threshold: f64) -> Result<Self> {
+        // Native debug logs can contain recognized tokens. Keep them out of stdout/stderr.
+        whisper_rs::install_logging_hooks();
         if !(0.0..=1.0).contains(&vad_threshold) || vad_threshold == 0.0 {
             return Err(Error::from_reason("VAD threshold must be between 0 and 1"));
         }
