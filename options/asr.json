@@ -1,0 +1,13 @@
+{
+  "modelPath": "models/ggml-tiny.bin",
+  "language": "auto",
+  "sampleRate": 16000,
+  "maxParallelTasks": 1,
+  "queue": {
+    "maxItems": 100,
+    "warningThreshold": 60,
+    "pauseThreshold": 85,
+    "resumeBelow": 60
+  },
+  "blacklistedUserIds": []
+}

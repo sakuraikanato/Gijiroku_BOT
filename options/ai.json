@@ -1,0 +1,6 @@
+{
+  "provider": "openai",
+  "model": null,
+  "timeoutMs": 60000,
+  "apiKeyEnv": "OPENAI_API_KEY"
+}

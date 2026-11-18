@@ -1,0 +1,4 @@
+{
+  "pollIntervalMs": 1000,
+  "leaseDurationMs": 120000
+}

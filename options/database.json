@@ -1,0 +1,5 @@
+{
+  "path": "data/database.sqlite",
+  "journalMode": "WAL",
+  "busyTimeoutMs": 5000
+}

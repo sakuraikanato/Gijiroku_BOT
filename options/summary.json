@@ -1,0 +1,12 @@
+{
+  "short": {
+    "characterThreshold": 2000,
+    "elapsedSeconds": 180,
+    "silenceSeconds": 30,
+    "debounceSeconds": 30
+  },
+  "long": {
+    "newShortSummaryThreshold": 3,
+    "elapsedSeconds": 900
+  }
+}

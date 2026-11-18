@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.tools/
+target/
+data/
+logs/
+models/
+*.node
