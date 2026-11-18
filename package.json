@@ -8,9 +8,12 @@
   "scripts": {
     "dev:bot": "bun apps/bot/src/index.ts",
     "dev:worker": "bun apps/worker/src/index.ts",
+    "db:migrate": "bun scripts/database-migrate.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "build:audio": "napi build --manifest-path crates/audio/Cargo.toml --output-dir target/napi",
+    "build:audio": "bun scripts/audio-build.ts",
+    "test:audio": "bun --no-env-file scripts/audio-smoke.ts",
+    "test:pipeline": "bun --no-env-file scripts/audio-pipeline-smoke.ts",
     "check:audio": "bun --no-env-file scripts/check-audio.ts"
   },
   "devDependencies": {
