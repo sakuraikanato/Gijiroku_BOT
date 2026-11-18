@@ -1,5 +1,11 @@
 {
   "name": "@gijiroku/shared",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    "./options": "./src/options.ts"
+  },
+  "dependencies": {
+    "zod": "^4"
+  }
 }
