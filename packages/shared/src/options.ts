@@ -57,7 +57,8 @@ const queueSchema = z.strictObject({
 const asrSchema = z.strictObject({
   modelPath: nonEmpty,
   language: nonEmpty,
-  sampleRate: positiveInteger,
+  sampleRate: z.literal(16000),
+  vadThreshold: z.number().min(0).max(1).default(0.008),
   maxParallelTasks: positiveInteger,
   queue: queueSchema,
   blacklistedUserIds: z.array(snowflake),

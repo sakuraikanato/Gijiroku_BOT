@@ -3,7 +3,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./options": "./src/options.ts"
+    "./options": "./src/options.ts",
+    "./contracts": "./src/contracts.ts",
+    "./database": "./src/database.ts",
+    "./scheduling": "./src/scheduling.ts",
+    "./audio": "./src/audio.ts"
   },
   "dependencies": {
     "zod": "^4"

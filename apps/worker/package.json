@@ -2,7 +2,14 @@
   "name": "@gijiroku/worker",
   "private": true,
   "type": "module",
+  "scripts": {
+    "dev": "bun --cwd ../.. apps/worker/src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun --cwd ../.. apps/worker/src/index.ts"
+  },
   "dependencies": {
+    "@gijiroku/shared": "workspace:*",
     "zod": "^4"
   }
 }

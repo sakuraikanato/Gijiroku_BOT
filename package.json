@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "dev:bot": "bun apps/bot/src/index.ts",
+    "dev:worker": "bun apps/worker/src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "build:audio": "napi build --manifest-path crates/audio/Cargo.toml --output-dir target/napi",

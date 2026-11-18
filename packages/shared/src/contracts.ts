@@ -68,6 +68,8 @@ export interface Repository {
   recoverSessions(now?: number): void;
   addParticipant(scope: Scope, userId: string, joined: boolean, now?: number): void;
   addTranscript(input: TranscriptInput): Transcript;
+  beginAudio(scope: Scope, sequence: number, startedAt: number): void;
+  endAudio(scope: Scope, sequence: number): void;
   recordAudioLoss(scope: Scope, reason: string, now?: number): void;
   pendingStats(scope: Scope): PendingStats;
   createShortJob(scope: Scope, final?: boolean, now?: number): Job | null;

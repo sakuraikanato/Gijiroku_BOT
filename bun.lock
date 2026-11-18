@@ -21,6 +21,7 @@
     "apps/worker": {
       "name": "@gijiroku/worker",
       "dependencies": {
+        "@gijiroku/shared": "workspace:*",
         "zod": "^4",
       },
     },
