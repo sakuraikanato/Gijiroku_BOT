@@ -38,7 +38,7 @@ export class VoiceSessions {
     if (this.closed) return "cancelled";
     if (this.sessions.has(guildId)) return "already-active";
 
-    const connection = joinVoiceChannel({ ...target, selfMute: true, selfDeaf: true });
+    const connection = joinVoiceChannel({ ...target, selfMute: true, selfDeaf: false });
     const session = { connection, abort: new AbortController() };
     this.sessions.set(guildId, session);
 

@@ -35,7 +35,7 @@ test("uses one voice connection per Guild and releases only the requested Guild"
     expect(await voice.start(a.target)).toBe("joined");
     expect(await voice.start(b.target)).toBe("joined");
     expect(a.packets).toEqual([{
-      guild_id: "guild-a", channel_id: "channel-a", self_deaf: true, self_mute: true,
+      guild_id: "guild-a", channel_id: "channel-a", self_deaf: false, self_mute: true,
     }]);
     expect(await voice.start({ ...a.target, channelId: "other-channel" })).toBe("already-active");
     expect(voice.status("guild-a")?.channelId).toBe("channel-a");

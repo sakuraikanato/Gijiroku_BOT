@@ -4,15 +4,20 @@ import {
   ChannelType,
   InteractionContextType,
   MessageFlags,
+  PermissionFlagsBits,
   type ApplicationCommandManager,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import type { VoiceSessions } from "./voice";
+import type { Repository } from "@gijiroku/shared/contracts";
+import type { AppOptions } from "@gijiroku/shared/options";
 
 const commands = [
+  { name: "setup", description: "このテキストチャンネルを要約の投稿先に登録します", defaultMemberPermissions: PermissionFlagsBits.ManageGuild },
   { name: "start", description: "あなたが参加しているボイスチャンネルに Bot を接続します" },
   { name: "stop", description: "このサーバーのボイスチャンネルから Bot を退出させます" },
   { name: "status", description: "このサーバーの Bot の VC 接続状態を表示します" },
+  { name: "config", description: "このサーバーの要約設定を表示します" },
 ] as const;
 
 export async function registerCommands(
@@ -39,8 +44,16 @@ export function isVoiceCommand(name: string) {
 }
 
 type VoiceInteraction = Pick<ChatInputCommandInteraction<"cached">,
-  "commandName" | "guild" | "guildId" | "user" | "reply" | "deferReply" | "editReply"
+  "commandName" | "guild" | "guildId" | "user" | "reply" | "deferReply" | "editReply" |
+  "channel" | "channelId" | "memberPermissions"
 >;
+export type VoiceController = {
+  start: VoiceSessions["start"];
+  stop(guildId: string): boolean | Promise<boolean>;
+  status(guildId: string): { channelId: string | null | undefined; state: string } | undefined;
+  close(): void | Promise<void>;
+};
+export type CommandContext = { repository: Repository; options: AppOptions };
 
 const ephemeral = { flags: MessageFlags.Ephemeral } as const;
 const joinMessage = {
@@ -52,12 +65,44 @@ const joinMessage = {
 
 export async function handleVoiceCommand(
   interaction: VoiceInteraction,
-  voice: Pick<VoiceSessions, "start" | "stop" | "status">,
+  voice: Pick<VoiceController, "start" | "stop" | "status">,
+  context?: CommandContext,
 ) {
   const { guildId } = interaction;
 
   switch (interaction.commandName) {
+    case "setup": {
+      if (!context) throw new Error("Repository unavailable.");
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        await interaction.reply({ ...ephemeral, content: "登録には「サーバー管理」権限が必要です。" });
+        return;
+      }
+      const channel = interaction.channel;
+      if (channel?.type !== ChannelType.GuildText ||
+        !interaction.guild.members.me ||
+        !channel.permissionsFor(interaction.guild.members.me)?.has([
+          PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory,
+        ])) {
+        await interaction.reply({ ...ephemeral, content: "Bot が閲覧・投稿・履歴参照できるテキストチャンネルで実行してください。" });
+        return;
+      }
+      context.repository.setOutputChannel(guildId, interaction.channelId);
+      await interaction.reply({ ...ephemeral, content: "このチャンネルを要約投稿先に登録しました。" });
+      return;
+    }
+    case "config": {
+      if (!context) throw new Error("Repository unavailable.");
+      const channelId = context.repository.getOutputChannel(guildId);
+      await interaction.reply({ ...ephemeral, content: channelId
+        ? `要約投稿先 <#${channelId}>\n設定の変更反映には Bot・Worker の再起動が必要です。`
+        : "投稿先が未登録です。投稿先で /setup を実行してください。" });
+      return;
+    }
     case "start": {
+      if (context && !context.repository.getOutputChannel(guildId)) {
+        await interaction.reply({ ...ephemeral, content: "要約を投稿するテキストチャンネルで /setup を実行してください。" });
+        return;
+      }
       if (voice.status(guildId)) {
         await interaction.reply({ ...ephemeral, content: joinMessage["already-active"] });
         return;
@@ -82,17 +127,20 @@ export async function handleVoiceCommand(
       return;
     }
     case "stop": {
-      const content = voice.stop(guildId) ? "VC から退出しました。" : "接続中の VC はありません。";
-      await interaction.reply({ ...ephemeral, content });
+      await interaction.deferReply(ephemeral);
+      const content = await voice.stop(guildId) ? "終了処理を行い、VC から退出しました。" : "接続中の VC はありません。";
+      await interaction.editReply(content);
       return;
     }
     case "status": {
       const status = voice.status(guildId);
       const channel = status?.channelId ? ` <#${status.channelId}>` : "";
       const content = status
-        ? `${status.state === VoiceConnectionStatus.Ready ? "接続中" : "接続処理中"}${channel}`
+        ? `${status.state === "stopping" ? "最終要約を処理中" : status.state === VoiceConnectionStatus.Ready ? "接続中" : "接続処理中"}${channel}`
         : "接続中の VC はありません。";
-      await interaction.reply({ ...ephemeral, content });
+      const sessions = context?.repository.activeSessions().filter((session) => session.guildId === guildId);
+      const detail = sessions?.length ? `\nSession ${sessions[0]!.state}` : "";
+      await interaction.reply({ ...ephemeral, content: content + detail });
     }
   }
 }

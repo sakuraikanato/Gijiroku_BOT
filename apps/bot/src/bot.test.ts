@@ -32,22 +32,22 @@ test("loads the configured token, supports the original local env name, and reje
   expect(() => readBotToken({ ...options, tokenEnv: "CUSTOM_TOKEN" }, { TOKEN: "legacy" })).toThrow("CUSTOM_TOKEN");
 });
 
-test("registers three commands per configured Guild and limits global commands to Guild contexts", async () => {
+test("registers all commands per configured Guild and limits global commands to Guild contexts", async () => {
   const create = mock(async (_command: ApplicationCommandDataResolvable, _guild?: string) =>
     ({}) as ApplicationCommand);
   const signal = new AbortController().signal;
 
   await registerCommands({ create }, [guildA, guildB], signal);
   expect(create.mock.calls.map(([command, guild]) => [commandName(command), guild])).toEqual([
-    ["start", guildA], ["stop", guildA], ["status", guildA],
-    ["start", guildB], ["stop", guildB], ["status", guildB],
+    ["setup", guildA], ["start", guildA], ["stop", guildA], ["status", guildA], ["config", guildA],
+    ["setup", guildB], ["start", guildB], ["stop", guildB], ["status", guildB], ["config", guildB],
   ]);
   expect(create.mock.calls.every(([command]) => !("contexts" in command))).toBe(true);
 
   create.mockClear();
   await registerCommands({ create }, [], signal);
   expect(create.mock.calls.map(([command, guild]) => [commandName(command), guild])).toEqual([
-    ["start", undefined], ["stop", undefined], ["status", undefined],
+    ["setup", undefined], ["start", undefined], ["stop", undefined], ["status", undefined], ["config", undefined],
   ]);
   expect(create.mock.calls[0]?.[0]).toMatchObject({ contexts: [InteractionContextType.Guild] });
 });
@@ -78,6 +78,7 @@ test("Bot waits for Gateway readiness, handles commands in their Guild, and rele
       guildId,
       user,
       isChatInputCommand: () => true,
+      isButton: () => false,
       inCachedGuild: () => true,
       guild: {
         voiceStates: { cache: new Map(voiceChannel ? [[user.id, { channel }]] : []) },
@@ -109,7 +110,7 @@ test("Bot waits for Gateway readiness, handles commands in their Guild, and rele
     expect(create).not.toHaveBeenCalled();
     client.emit(Events.ClientReady, client as Client<true>);
     await starting;
-    expect(create).toHaveBeenCalledTimes(6);
+    expect(create).toHaveBeenCalledTimes(10);
 
     expect(await invoke("status", guildA)).toBe("接続中の VC はありません。");
     expect(await invoke("start", guildA, false)).toContain("通常の VC");
@@ -118,7 +119,7 @@ test("Bot waits for Gateway readiness, handles commands in their Guild, and rele
     expect(await invoke("status", guildA)).toContain(`<#${channelId}>`);
     expect(await invoke("status", guildB)).toBe("接続中の VC はありません。");
     expect(await invoke("start", guildB)).toBe("VC に接続しました。");
-    expect(await invoke("stop", guildA)).toBe("VC から退出しました。");
+    expect(await invoke("stop", guildA)).toBe("終了処理を行い、VC から退出しました。");
     expect(await invoke("status", guildB)).toContain(`<#${channelId}>`);
   } finally {
     await bot.shutdown();

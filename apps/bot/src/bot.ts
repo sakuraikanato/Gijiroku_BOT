@@ -1,8 +1,9 @@
 import { once } from "node:events";
 import type { DiscordOptions } from "@gijiroku/shared/options";
 import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
-import { handleVoiceCommand, isVoiceCommand, registerCommands } from "./commands";
+import { handleVoiceCommand, isVoiceCommand, registerCommands, type CommandContext, type VoiceController } from "./commands";
 import { VoiceSessions } from "./voice";
+import { showSummaryDetails } from "./details";
 
 export function readBotToken(options: DiscordOptions, environment: NodeJS.ProcessEnv): string {
   const token = environment[options.tokenEnv]?.trim()
@@ -32,15 +33,32 @@ export async function connectGateway(client: Client, token: string, signal: Abor
   return client;
 }
 
-export function createBot(options: DiscordOptions, client = createBotClient(), voice = new VoiceSessions()) {
+export function createBot(options: DiscordOptions, client = createBotClient(), voice: VoiceController = new VoiceSessions(), context?: CommandContext) {
   const abort = new AbortController();
   let commandsReady = false;
   let closing: Promise<void> | undefined;
 
   client.on(Events.Error, () => console.error("Discord クライアントでエラーが発生しました。"));
   client.on(Events.ShardError, () => console.error("Discord Gateway で通信エラーが発生しました。"));
-  client.on(Events.GuildDelete, (guild) => voice.stop(guild.id));
+  client.on(Events.GuildDelete, (guild) => {
+    void Promise.resolve(voice.stop(guild.id)).catch(() => console.error("Guild の終了処理に失敗しました。"));
+  });
+  client.on(Events.VoiceStateUpdate, (before, after) => {
+    if (!context) return;
+    const session = context.repository.activeSessions().find((item) => item.guildId === after.guild.id);
+    if (!session || session.state !== "running") return;
+    if (before.channelId === session.voiceChannelId && after.channelId !== before.channelId) {
+      context.repository.addParticipant(session, after.id, false);
+    }
+    if (after.channelId === session.voiceChannelId && before.channelId !== after.channelId) {
+      context.repository.addParticipant(session, after.id, true);
+    }
+  });
   client.on(Events.InteractionCreate, (interaction) => {
+    if (interaction.isButton() && interaction.inCachedGuild() && context && !abort.signal.aborted) {
+      void showSummaryDetails(interaction, context.repository).catch(() => console.error("要約の詳細を表示できませんでした。"));
+      return;
+    }
     if (!interaction.isChatInputCommand() || !interaction.inCachedGuild() ||
       !isVoiceCommand(interaction.commandName) || abort.signal.aborted) return;
     if (options.commandGuildIds.length && !options.commandGuildIds.includes(interaction.guildId)) return;
@@ -51,7 +69,7 @@ export function createBot(options: DiscordOptions, client = createBotClient(), v
       return;
     }
 
-    void handleVoiceCommand(interaction, voice).catch(async () => {
+    void handleVoiceCommand(interaction, voice, context).catch(async () => {
       console.error("Discord コマンドの処理中にエラーが発生しました。");
       const content = "コマンドを処理できませんでした。";
       try {
@@ -87,7 +105,7 @@ export function createBot(options: DiscordOptions, client = createBotClient(), v
       closing ??= (async () => {
         abort.abort();
         try {
-          voice.close();
+          await voice.close();
         } finally {
           await client.destroy();
         }
